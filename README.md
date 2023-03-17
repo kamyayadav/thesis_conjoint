@@ -11,3 +11,5 @@ Data
 2. analysis_files: folder that contains the rmd for data analysis 
   2.1 conjoint.Rmd: contains code for analyzing conjoint data 
   2.2 thesis.Rmd: contains code for analyzing supplementary thesis data
+  
+Running the markdown files with the correct working directory should produce all the tables and figures relevant for the conjoint analysis. For a copy of the thesis, contact author at kamyayadav@berkeley.edu. 
