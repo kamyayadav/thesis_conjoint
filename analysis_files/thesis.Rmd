@@ -1,0 +1,471 @@
+---
+output: pdf_document
+header-includes: 
+- \usepackage{rotating, graphicx}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = TRUE)
+library(tidyverse)
+library(stargazer)
+library(xtable)
+#set working directory 
+#setwd("~/Github/thesis_conjoint/final_data")
+female <- read.csv("thesis_data_clean.csv", header = T)
+```
+
+```{r data_transformation, include=FALSE}
+##data transformation 
+#recode sex and should women run
+female_mod <- female %>% 
+  mutate(gender = case_when(
+    (gender == "Male") ~ '0',
+    (gender == "Female") ~ '1',
+    TRUE ~ as.character(gender)
+  ),
+  gender = as.factor(gender),
+  should_women_run = case_when(
+    (should_women_run == "No") ~ '0',
+    (should_women_run == "Maybe") ~ '0', ## Merging Maybe with No
+    TRUE ~ '1'
+  ), 
+  should_women_run = as.numeric(should_women_run))
+
+#recode caste to binary variable for forward and backward caste
+female_mod <- female_mod %>%
+  mutate(caste_bin = case_when(
+    (caste == "Forward castes") ~ '0',
+    (caste == "Other backward classes (OBCs)") ~ '1',
+    (caste == "Scheduled castes") ~ '1',
+    (caste == "Scheduled tribe") ~ '1',
+    TRUE ~ as.character(caste)
+  ))
+
+#converting prefer not to say to NA (treating it as missing value to be dropped in the regression)
+female_mod$caste_bin[female_mod$caste_bin == "Prefer not to say"] <- NA
+female_mod$caste[female_mod$caste == "Prefer not to say"] <- NA
+
+#recode education variable into binary to represent less than or equal to 12 years of education or more than 12 years of education
+female_mod <- female_mod %>% 
+  mutate(edu = case_when(
+    (educ_level == "Below primary") ~ '0',
+    (educ_level == "Primary") ~ '0',
+    (educ_level == "Middle") ~ '0',
+    (educ_level == "Matric/Secondary") ~ '0',
+    (educ_level == "Higher secondary/Senior secondary") ~ '0',
+    (educ_level == "Other") ~ "Other",
+    TRUE ~ '1'
+  ))
+
+#converting educ_level == other to NA (treating it as missing value to be dropped in the regression)
+female_mod$edu[female_mod$edu == "Other"] <- NA
+
+#recode party support (none of the above and other to none of the above)
+female_mod <- female_mod %>% 
+  mutate(party_support = case_when(
+    (party_support == "Other") ~ "None of the above",
+    TRUE ~ as.character(party_support)
+  ))
+
+#recode employment status into binary for employed (1) and unemployed (0)
+female_mod <- female_mod %>% 
+  mutate(employed = case_when(
+    (employment_status == "Unemployed and looking for work") ~ '0',
+    (employment_status == "Unemployed and not looking for work") ~ '0',
+    (employment_status == "Student") ~ '0',
+    TRUE ~ '1'
+  ))
+
+#recode income brackets to be a numeric variable (since order matters)
+female_mod <- female_mod %>% 
+  mutate(household_inc = case_when(
+    (annual_household_income == "₹0 - ₹2,50,000") ~ '1', 
+    (annual_household_income == "₹2,50,001 - ₹5,00,000") ~ '2', 
+    (annual_household_income == "₹5,00,001 - ₹10,00,000") ~ '3', 
+    (annual_household_income == "₹10,00,001 - ₹20,00,000") ~ '4', 
+    (annual_household_income == "₹20,00,001 - ₹30,00,000") ~ '5', 
+    (annual_household_income == "₹30,00,001 - ₹40,00,000") ~ '6', 
+    (annual_household_income == "₹40,00,001 - ₹50,00,000") ~ '7', 
+    (annual_household_income == "More than ₹50,00,000") ~ '8', 
+    TRUE ~ as.character(annual_household_income)
+  ),
+  household_inc = as.numeric(household_inc))
+
+#recoding marriage into currently married and not currently married
+female_mod <- female_mod %>% 
+  mutate(marriage = case_when(
+    (marital_status == "Currently married") ~ '1',
+    TRUE ~ '0'
+  ))
+
+#creating political engagement variable with voting behavior in the last state and national election
+female_mod <- female_mod %>% 
+  mutate(vote_2019 = case_when(
+    (vote_2019_national == "Yes") ~ '1',
+    TRUE ~ '0'
+  ),
+  vote_2020 = case_when(
+    (vote_2020_delhi == "Yes") ~ '1',
+    TRUE ~ '0'
+  ),
+  vote_2019 = as.numeric(vote_2019),
+  vote_2020 = as.numeric(vote_2020),
+  political_engagement = (vote_2019 + vote_2020)/2) #put on a 0-1 scale
+
+#liberal-conservative scale (numeric because order matters)
+female_mod <- female_mod %>% 
+  mutate(ideology_scale = case_when(
+    (lib_cons_scale == "Extremely conservative") ~ '1',
+    (lib_cons_scale == "Conservative") ~ '2',
+    (lib_cons_scale == "Slightly conservative") ~ '3',
+    (lib_cons_scale == "Moderate; middle of the road") ~ '4',
+    (lib_cons_scale == "Slightly liberal") ~ '5',
+    (lib_cons_scale == "Liberal") ~ '6',
+    (lib_cons_scale == "Extremely liberal") ~ '7',
+    TRUE ~ '8'
+  ),
+  ideology_scale = as.numeric(ideology_scale))
+
+#recoding ideology scale = 8 to NA (to be dropped from regression)
+female_mod$ideology_scale[female_mod$ideology_scale == '8'] <- NA
+
+#recoding religious identity to smaller categories 
+female_mod <- female_mod %>% 
+  mutate(religion = case_when(
+    (religious_identity == "Hindu") ~ "Hindu",
+    (religious_identity == "Muslim") ~ "Muslim",
+    TRUE ~ "Other"
+  ))
+
+#support for wrb (maybe merged with no)
+female_mod <- female_mod %>% 
+  mutate(wrb = case_when(
+    (support_wrb == "Yes") ~ '1',
+    TRUE ~ '0'
+  ),
+  wrb = as.numeric(wrb))
+
+#write.csv(female_mod, file = "thesis_data_final.csv")
+```
+
+```{r shouldwomenrun, include=FALSE}
+#gender model
+model1 <- glm(data = female_mod, should_women_run ~ gender)
+#caste model
+model2 <- glm(data = female_mod, should_women_run ~ caste_bin)
+#education model
+model3 <- glm(data = female_mod, should_women_run ~ edu)
+#party support model
+model4 <- glm(data = female_mod, should_women_run ~ party_support)
+#partial model 
+model5 <- glm(data = female_mod, should_women_run ~ gender + caste_bin + 
+                edu + party_support)
+#full model 
+model6 <- glm(data = female_mod, should_women_run ~ gender + caste_bin + 
+                edu + party_support + age + religion + employed +
+                household_inc + marriage + political_engagement +
+                ideology_scale)
+```
+
+```{r results='asis', warning=F, message=F, echo=FALSE}
+stargazer(model1, model2, model3, model4, model5, model6,
+          type = "latex",
+          header = FALSE,
+          title = "Models for Relationship between Support for Women in Politics and Covariates",
+          covariate.labels = c("Female", "SC/ST/OBC",
+                               "Education",
+                               "Party: BSP",
+                               "Party: BJP",
+                               "Party: INC",
+                               "Party: None",
+                               "Age",
+                               "Employment Status",
+                               "Household Income",
+                               "Marital Status",
+                               "Political Engagement",
+                               "Ideology Scale"),
+          dep.var.labels = "Should Women Run for Elections?",
+          omit = "religion",
+          star.cutoffs = c(.05,.01,.001),
+          #out = "table1.tex",
+          font.size = "footnotesize")
+```
+
+```{r supportwrb, include=FALSE}
+#gender model
+model7 <- glm(data = female_mod, wrb ~ gender)
+#caste model
+model8 <- glm(data = female_mod, wrb ~ caste_bin)
+#education model
+model9 <- glm(data = female_mod, wrb ~ edu)
+#party support model
+model10 <- glm(data = female_mod, wrb ~ party_support)
+#partial model 
+model11 <- glm(data = female_mod, wrb ~ gender + caste_bin + 
+                edu + party_support)
+#full model 
+model12 <- glm(data = female_mod, wrb ~ gender + caste_bin + 
+                edu + party_support + age + religion + employed +
+                household_inc + marriage + political_engagement +
+                ideology_scale)
+```
+
+```{r results='asis', warning=F, message=F, echo=FALSE}
+stargazer(model7, model8, model9, model10, model11, model12,
+          type = "latex",
+          header = FALSE,
+          title = "Models for Relationship between Support for Women's Reservation Bill and Covariates",
+          covariate.labels = c("Female", "SC/ST/OBC",
+                               "Education",
+                               "Party: BSP",
+                               "Party: BJP",
+                               "Party: INC",
+                               "Party: None",
+                               "Age",
+                               "Employment Status",
+                               "Household Income",
+                               "Marital Status",
+                               "Political Engagement",
+                               "Ideology Scale"),
+          dep.var.labels = "Do you support the Women's Reservation Bill?",
+          omit = "religion",
+          star.cutoffs = c(.05,.01,.001),
+          #out = "table2.tex",
+          font.size = "footnotesize")
+```
+
+```{r reservation_data_transformation, include=FALSE}
+#treatment variable 
+female_mod <- female_mod %>% 
+  mutate(treat_condition = case_when(
+    (Treatment == '1') ~ '1',
+    (Control == '1') ~ '0',
+    TRUE ~ as.character(Treatment)
+  ))
+
+#average reservation support calculation 
+female_mod <- female_mod %>% 
+  mutate(village_score = case_when(
+    (village_res_treat == "Yes") ~ '1',
+    (village_res_control == "Yes") ~ '1',
+    (village_res_treat == "No") ~ '0',
+    (village_res_control == "No") ~ '0',
+    TRUE ~ as.character(village_res_treat)),
+  state_score = case_when(
+    (state_res_treat == "Yes") ~ '1',
+    (state_res_control == "Yes") ~ '1',
+    (state_res_treat == "No") ~ '0',
+    (state_res_control == "No") ~ '0',
+    TRUE ~ as.character(state_res_treat)),
+   national_score = case_when(
+    (national_res_treat == "Yes") ~ '1',
+    (national_res_control == "Yes") ~ '1',
+    (national_res_treat == "No") ~ '0',
+    (national_res_control == "No") ~ '0',
+    TRUE ~ as.character(national_res_treat)))
+
+female_mod <- female_mod %>% 
+  mutate(res_support = ((as.numeric(village_score) + as.numeric(state_score) + as.numeric(national_score))/3)*100)
+```
+
+```{r avgressupport, include=FALSE}
+#treatment model 
+model13 <- lm(data = female_mod, res_support ~ treat_condition)
+#gender model
+model14 <- lm(data = female_mod, res_support ~ treat_condition + gender)
+#caste model
+model15 <- lm(data = female_mod, res_support ~ treat_condition + caste_bin)
+#education model
+model16 <- lm(data = female_mod, res_support ~ treat_condition + edu)
+#party support model
+model17 <- lm(data = female_mod, res_support ~ treat_condition + party_support)
+#partial model 
+model18 <- lm(data = female_mod, res_support ~ treat_condition + gender + caste_bin + 
+                edu + party_support)
+#full model 
+model19 <- lm(data = female_mod, res_support ~ treat_condition + gender + caste_bin + 
+                edu + party_support + age + religion + employed +
+                household_inc + marriage + political_engagement +
+                ideology_scale)
+```
+
+```{r results='asis', warning=F, message=F, echo=FALSE}
+stargazer(model13, model14, model15, model16, model17, model18, model19,
+          type = "latex",
+          header = FALSE,
+          title = "Models for Relationship between Support for Reservation and Covariates",
+          covariate.labels = c("No Reservation",
+                               "Female", 
+                               "SC/ST/OBC",
+                               "Education",
+                               "Party: BSP",
+                               "Party: BJP",
+                               "Party: INC",
+                               "Party: None",
+                               "Age",
+                               "Employment Status",
+                               "Household Income",
+                               "Marital Status",
+                               "Political Engagement",
+                               "Ideology Scale"),
+          dep.var.labels = "Average Support for Reservation",
+          omit = "religion",
+          omit.stat = c("f", "ser"),
+          star.cutoffs = c(.05,.01,.001),
+          column.sep.width = "-5pt",
+          font.size = "footnotesize")
+         # out = "table3.tex")
+```
+
+```{r casteres_data_transformation, include=FALSE}
+#caste reservation in wrb
+female_mod <- female_mod %>% 
+  mutate(sc_st_res = case_when(
+    (sc_st_res_treat == "Yes") ~ '1',
+    (sc_st_res_control == "Yes") ~ '1',
+    (sc_st_res_treat == "No") ~ '0',
+    (sc_st_res_control == "No") ~ '0',
+    (sc_st_res_treat == "Maybe") ~ '0',
+    (sc_st_res_control == "Maybe") ~ '0',
+    TRUE ~ as.character(sc_st_res_treat)),
+    sc_st_res = as.numeric(sc_st_res))
+```
+
+```{r casteressupport, include=FALSE}
+#treatment model 
+model20 <- glm(data = female_mod, sc_st_res ~ treat_condition)
+#gender model
+model21 <- glm(data = female_mod, sc_st_res ~ treat_condition + gender)
+#caste model
+model22 <- glm(data = female_mod, sc_st_res ~ treat_condition + caste_bin)
+#education model
+model23 <- glm(data = female_mod, sc_st_res ~ treat_condition + edu)
+#party support model
+model24 <- glm(data = female_mod, sc_st_res ~ treat_condition + party_support)
+#partial model 
+model25 <- glm(data = female_mod, sc_st_res ~ treat_condition + gender + caste_bin + 
+                edu + party_support)
+#full model 
+model26 <- glm(data = female_mod, sc_st_res ~ treat_condition + gender + caste_bin + 
+                edu + party_support + age + religion + employed +
+                household_inc + marriage + political_engagement +
+                ideology_scale)
+```
+
+```{r results='asis', warning=F, message=F, echo=FALSE}
+stargazer(model20, model21, model22, model23, model24, model25, model26,
+          type = "latex",
+          header = FALSE,
+          title = "Models for Relationship between Support for Caste Reservation (in WRB) and Covariates",
+          covariate.labels = c("No Reservation",
+                               "Female", 
+                               "SC/ST/OBC",
+                               "Education",
+                               "Party: BSP",
+                               "Party: BJP",
+                               "Party: INC",
+                               "Party: None",
+                               "Age",
+                               "Employment Status",
+                               "Household Income",
+                               "Marital Status",
+                               "Political Engagement",
+                               "Ideology Scale"),
+          dep.var.labels = "Average Support for Caste Reservation (in WRB)",
+          omit = "religion",
+          omit.stat = c("f", "ser"),
+          star.cutoffs = c(.05,.01,.001),
+          column.sep.width = "-5pt",
+          font.size = "footnotesize")
+          #out = "table4.tex")
+```
+
+```{r echo=FALSE}
+#balance of covariates check 
+treat.dat <- female_mod %>% 
+  filter(Treatment == "1")
+treat.dat.sum <- treat.dat %>% 
+  select(gender, age, should_women_run, household_inc, vote_2019, vote_2019_national, vote_2020, vote_2020_delhi, political_engagement, wrb, caste_bin, edu, employed, marriage, ideology_scale, res_support) %>% 
+  mutate(gender = as.numeric(gender))
+
+control.dat <- female_mod %>% 
+  filter(Control == "1") 
+control.dat.sum <- control.dat %>% 
+  select(gender, age, should_women_run, household_inc, vote_2019, vote_2019_national, vote_2020, vote_2020_delhi, political_engagement, wrb, caste_bin, edu, employed, marriage, ideology_scale, res_support) %>% 
+  mutate(gender = as.numeric(gender))
+```
+
+```{r results='asis', message=F, warning=F, echo=FALSE}
+stargazer(treat.dat.sum,
+          type = "latex",
+          title = "Balance of Covariates: Treatment Group",
+          covariate.labels = c("Gender",
+                               "Age",
+                               "Should Women Run?",
+                               "Household Income Bracket",
+                               "Did you vote in 2019?",
+                               "Did you vote in 2020?",
+                               "Political engagement level",
+                               "Do you support Women's Reservation Bill?",
+                               "Ideological Scale"),
+          omit = "res_support",
+          header = F)
+          #out = "boc_treat.tex")
+
+stargazer(control.dat.sum,
+          type = "latex",
+          title = "Balance of Covariates: Control Group",
+          covariate.labels = c("Gender",
+                               "Age",
+                               "Should Women Run?",
+                               "Household Income Bracket",
+                               "Did you vote in 2019?",
+                               "Did you vote in 2020?",
+                               "Political engagement level",
+                               "Do you support Women's Reservation Bill?",
+                               "Ideological Scale"),
+          omit = "res_support",
+          header = F)
+         # out = "boc_control.tex")
+
+```
+
+```{r}
+#love plot for balance of covariates 
+#install.packages("cobalt")
+library(cobalt)
+female_boc <- female_mod %>% 
+  select(gender, age, should_women_run, household_inc, vote_2019, vote_2019_national, vote_2020, vote_2020_delhi, political_engagement, wrb, caste_bin, edu, employed, marriage, ideology_scale, res_support, treat_condition)
+bal.tab <- bal.tab(female_boc, treat = female_mod$treat_condition)
+v <- data.frame(old = c("gender", "age", "should_women_run", "household_inc", "vote_2019", "vote_2020", "political_engagement", "wrb", "caste_bin", "edu", "employed", "marriage", "ideology_scale", "res_support"),
+                 new =  c("Gender", "Age", "Should Women Run for Elections?", "Household Income", "Voted in 2019", "Voted in 2020", "Political engagement", "Support for WRB", "Caste", "Education", "Employment Status", "Marital Status", "Ideology Scale", "Support for Reservations"))
+love.plot <- love.plot(bal.tab, binary = "std", thresholds = c(m = .1), position = "none", limits = c(m = c(-2, 2)), 
+          var.names = v, var.order = "unadjusted", title = "")
+#ggsave("love_plot_boc.png", love.plot, units = "in", height = 6, width = 8)
+```
+
+```{r}
+rep <- read.csv("rep.csv", header = T)
+rep <- rep %>% 
+  rename("2011 Census Proportions" = X2011.Census.Proportions,
+         "Sample Proportions" = Sample.Proportions)
+```
+
+```{r results = 'asis'}
+stargazer(rep,
+          type = "latex",
+          summary = FALSE,
+          title = "Representativeness of the Data Compared to Population of New Delhi, India",
+          header = FALSE, 
+          notes = c("The Census proportions are drawn from the Census of India (2011) and standardized to",
+          "correspond to the format of the sample data. All figures are rounded to two digits."),
+          notes.align = "l",
+          #out = "rep.tex",
+          digits = 2)
+
+```
+
+
+
+
+

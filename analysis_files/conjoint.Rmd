@@ -1,0 +1,1320 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+header-includes: 
+  - \usepackage{longtable}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache=TRUE)
+library(tidyverse)
+library(ggplot2)
+library(foreign)
+library(stargazer)
+library(xtable)
+library(lmtest)
+library(broom)
+library(margins)
+library(grid)
+library(multiwayvcov)
+library(gridExtra)
+library(cjoint)
+
+#set working directory 
+#setwd("~/Github/thesis_conjoint/final_data")
+```
+
+```{r echo=FALSE}
+conjoint <- read.csv("conjoint_data_clean.csv", header = T)
+```
+
+```{r echo=F}
+#transform the data into binaries and analyzable format
+conjoint_spread <- conjoint %>% 
+  mutate(gender_male = case_when(
+    (gender == "Male") ~ "1",
+    TRUE ~ "0"
+  ),
+  gender_female = case_when(
+    (gender == "Female") ~ "1",
+    TRUE ~ "0"
+  ),
+  age_29 = case_when(
+    (age == "29") ~ "1",
+    TRUE ~ "0"
+  ),
+  age_45 = case_when(
+    (age == "45") ~ "1",
+    TRUE ~ "0"
+  ),
+  age_65 = case_when(
+    (age == "65") ~ "1",
+    TRUE ~ "0"
+  ),
+  num_child_0 = case_when(
+    (num_children == "0") ~ "1",
+    TRUE ~ "0"
+  ),
+   num_child_1 = case_when(
+    (num_children == "1") ~ "1",
+    TRUE ~ "0"
+  ),
+   num_child_3 = case_when(
+    (num_children == "3") ~ "1",
+    TRUE ~ "0"
+  ),
+  occ_teacher = case_when(
+    (occupation == "Teacher") ~ "1",
+    TRUE ~ "0"
+  ),
+  occ_lawyer = case_when(
+    (occupation == "Lawyer") ~ "1",
+    TRUE ~ "0"
+  ),
+  occ_politician = case_when(
+    (occupation == "Politician") ~ "1",
+    TRUE ~ "0"
+  ),
+  occ_homemaker = case_when(
+    (occupation == "Homemaker") ~ "1",
+    TRUE ~ "0"
+  ),
+  years_in_pol_0 = case_when(
+    (num_years_politics == "0") ~ "1",
+    TRUE ~ "0"
+  ),
+   years_in_pol_1 = case_when(
+    (num_years_politics == "1 year") ~ "1",
+    TRUE ~ "0"
+  ),
+   years_in_pol_3 = case_when(
+    (num_years_politics == "3 years") ~ "1",
+    TRUE ~ "0"
+  ),
+   years_in_pol_8 = case_when(
+    (num_years_politics == "8 years") ~ "1",
+    TRUE ~ "0"
+  ),
+  spouse_occ_politician = case_when(
+    (spouse_occupation == "Politician") ~ "1",
+    TRUE ~ "0"
+  ),
+  spouse_occ_doctor = case_when(
+    (spouse_occupation == "Doctor") ~ "1",
+    TRUE ~ "0"
+  ),spouse_occ_farmer = case_when(
+    (spouse_occupation == "Farmer") ~ "1",
+    TRUE ~ "0"
+  ),spouse_occ_unmarried = case_when(
+    (spouse_occupation == "Unmarried") ~ "1",
+    TRUE ~ "0"
+  ),
+  caste_forward = case_when(
+    (caste == "Forward caste") ~ "1",
+    TRUE ~ "0"
+  ),
+  caste_backward = case_when(
+    (caste == "SC/ST/OBC") ~ "1",
+    TRUE ~ "0"
+  ))
+```
+
+```{r echo=F}
+#drop original rows except for gender (easier analysis)
+conjoint_spread <- conjoint_spread %>% 
+  select(-age, -occupation, -spouse_occupation, -num_children, -num_years_politics, -caste)
+
+#rename 
+conjoint_spread <- conjoint_spread %>% 
+  rename("gender_string" = gender)
+
+#append respondent gender 
+survey.data <- read.csv("thesis_data_clean.csv", header = T)
+survey.data <- survey.data %>% 
+  select(response_id, gender)
+```
+
+```{r echo=F}
+#merge two data sets 
+conjoint_final <- left_join(conjoint_spread, survey.data, by = "response_id")
+conjoint_final <- conjoint_final %>% 
+  rename("respondent_gender" = gender) %>% 
+  select(1, respondent_gender, 2:25)
+
+#write.csv(conjoint_final, file = "conjoint_data_final.csv")
+```
+
+```{r echo=F, warning=F, message=F}
+#conjoint analysis regressions 
+model1 <- lm(win ~ gender_female + age_45 + age_65 + num_child_1 + num_child_3 + 
+                 occ_lawyer + occ_politician + occ_homemaker + years_in_pol_1 + 
+                 years_in_pol_3 + years_in_pol_8 + spouse_occ_politician + 
+                 spouse_occ_doctor + spouse_occ_farmer + caste_backward, 
+             data = conjoint_final)
+
+model1_out <- coeftest(model1, vcov=vcovCL(model1, type="HC1", cluster= conjoint_final$response_id))
+
+model2 <- lm(win ~ gender_female*age_45 + gender_female*age_65 +
+                 gender_female*num_child_1 + gender_female*num_child_3 + 
+                 gender_female*occ_lawyer + gender_female*occ_politician + 
+                 gender_female*occ_homemaker + gender_female*years_in_pol_1 + 
+                 gender_female*years_in_pol_3 + gender_female*years_in_pol_8 + 
+                 gender_female*spouse_occ_doctor + gender_female*spouse_occ_farmer + 
+                 gender_female*spouse_occ_politician + gender_female*caste_backward, 
+             data = conjoint_final)
+model2_out <- coeftest(model2, vcov=vcovCL(model2, type="HC1", cluster= conjoint_final$response_id))
+
+#conjoint female subset 
+conjoint_final_fem <- conjoint_final %>% 
+  filter(respondent_gender == "Female")
+
+conjoint_final_male <- conjoint_final %>% 
+  filter(respondent_gender == "Male")
+
+#models on subsets 
+##female 
+model3 <- lm(win ~ gender_female + age_45 + age_65 + num_child_1 + num_child_3 + 
+                 occ_lawyer + occ_politician + occ_homemaker + years_in_pol_1 + 
+                 years_in_pol_3 + years_in_pol_8 + spouse_occ_politician + 
+                 spouse_occ_doctor + spouse_occ_farmer + caste_backward, 
+             data = conjoint_final_fem)
+model3_out <- coeftest(model3, vcov=vcovCL(model3, type="HC1", cluster= conjoint_final_fem$response_id))
+
+model4 <- lm(win ~ gender_female*age_45 + gender_female*age_65 +
+                 gender_female*num_child_1 + gender_female*num_child_3 + 
+                 gender_female*occ_lawyer + gender_female*occ_politician + 
+                 gender_female*occ_homemaker + gender_female*years_in_pol_1 + 
+                 gender_female*years_in_pol_3 + gender_female*years_in_pol_8 + 
+                 gender_female*spouse_occ_doctor + gender_female*spouse_occ_farmer + 
+                 gender_female*spouse_occ_politician + gender_female*caste_backward, 
+             data = conjoint_final_fem)
+model4_out <- coeftest(model4, vcov=vcovCL(model4, type="HC1", cluster= conjoint_final_fem$response_id))
+
+##male 
+model5 <- lm(win ~ gender_female + age_45 + age_65 + num_child_1 + num_child_3 + 
+                 occ_lawyer + occ_politician + occ_homemaker + years_in_pol_1 + 
+                 years_in_pol_3 + years_in_pol_8 + spouse_occ_politician + 
+                 spouse_occ_doctor + spouse_occ_farmer + caste_backward, 
+             data = conjoint_final_male)
+model5_out <- coeftest(model5, vcov=vcovCL(model5, type="HC1", cluster= conjoint_final_male$response_id))
+
+model6 <- lm(win ~ gender_female*age_45 + gender_female*age_65 +
+                 gender_female*num_child_1 + gender_female*num_child_3 + 
+                 gender_female*occ_lawyer + gender_female*occ_politician + 
+                 gender_female*occ_homemaker + gender_female*years_in_pol_1 + 
+                 gender_female*years_in_pol_3 + gender_female*years_in_pol_8 + 
+                 gender_female*spouse_occ_doctor + gender_female*spouse_occ_farmer + 
+                 gender_female*spouse_occ_politician + gender_female*caste_backward, 
+             data = conjoint_final_male)
+model6_out <- coeftest(model6, vcov=vcovCL(model6, type="HC1", cluster= conjoint_final_male$response_id))
+```
+
+```{r results='asis', echo=FALSE}
+#print results 
+stargazer(model1_out,
+          model3_out,
+          model5_out,
+          type = "latex",
+          header = FALSE,
+          title = "Average Marginal Component Effects for Attributes",
+          column.labels = c("Full Model", "Female Respondents", "Male Respondents"),
+          covariate.labels = c("Candidate Gender: Female",
+                               "Age: 45",
+                               "Age: 65",
+                               "1 Child",
+                               "3 Children",
+                               "Lawyer",
+                               "Politician",
+                               "Homemaker",
+                               "1 Year in Politics",
+                               "3 Years in Politics",
+                               "8 Years in Politics",
+                               "Spouse: Politician",
+                               "Spouse: Doctor",
+                               "Spouse: Farmer",
+                               "Caste: SC/ST/OBC"),
+          star.cutoffs = c(.05,.01,.001),
+          out = "ACME1.tex",
+          dep.var.caption = "Percentage Point Change in Probability of Winning",
+          float = TRUE,
+          font.size = "footnotesize",
+          notes = c("The AMCE was calculated through simple linear regression on a dataset of 6300 observations",
+          "(each candidate pair resulted in two observations - one winner and one loser - and there were three",
+          "candidate pairs per respondent). Each variable is interpreted with respect to a baseline, as specified",
+          "in the text."),
+          notes.align = "l",
+          notes.append = T)
+```
+
+```{r echo=F, results='asis'}
+#printing acie regression results (appendix)
+stargazer(model2_out,
+          model4_out,
+          model6_out,
+          type = "latex",
+          header = FALSE,
+          title = "Average Component Interaction Effects for Attributes",
+          column.labels = c("Full Model", "Female Respondents", "Male Respondents"),
+          covariate.labels = c("Candidate Gender: Female",
+                               "Age: 45",
+                               "Age: 65",
+                               "1 Child",
+                               "3 Children",
+                               "Lawyer",
+                               "Politician",
+                               "Homemaker",
+                               "1 Year in Politics",
+                               "3 Years in Politics",
+                               "8 Years in Politics",
+                               "Spouse: Politician",
+                               "Spouse: Doctor",
+                               "Spouse: Farmer",
+                               "Caste: SC/ST/OBC"),
+          star.cutoffs = c(.05,.01,.001),
+          omit = ":",
+          out = "ACME2.tex",
+          dep.var.caption = "Percentage Point Change in Probability of Winning",
+          float = TRUE,
+          font.size = "footnotesize")
+```
+
+```{r echo=F}
+#data frames for plotting 
+model1.dat <- tidy(model1_out, conf.int = TRUE, conf.level = 0.95)
+model3.dat <- tidy(model3_out, conf.int = TRUE, conf.level = 0.95)
+model5.dat <- tidy(model5_out, conf.int = TRUE, conf.level = 0.95)
+
+#add cis 
+model1.dat <- model1.dat %>% 
+  mutate(lower_ci = (estimate - 1.96*std.error),
+         upper_ci = (estimate + 1.96*std.error)) %>% 
+  mutate(term = c("Intercept", "Candidate:Female", "Age:45", "Age:65", 
+                  "1 Child", "3 Children", "Lawyer", "Politician", 
+                  "Homemaker", "1 Year in Politics", "3 Years in Politics", 
+                  "8 Years in Politics", "Spouse:Politician", "Spouse:Doctor",
+                  "Spouse:Farmer", "Caste:SC/ST/OBC" )) %>% 
+  filter(term != "Intercept")
+model1.dat$term <- factor(model1.dat$term, levels = model1.dat$term)
+
+model3.dat <- model3.dat %>% 
+  mutate(lower_ci = (estimate - 1.96*std.error),
+         upper_ci = (estimate + 1.96*std.error)) %>% 
+  mutate(term = c("Intercept", "Candidate:Female", "Age:45", "Age:65", 
+                  "1 Child", "3 Children", "Lawyer", "Politician", 
+                  "Homemaker", "1 Year in Politics", "3 Years in Politics", 
+                  "8 Years in Politics", "Spouse:Politician", "Spouse:Doctor",
+                  "Spouse:Farmer", "Caste:SC/ST/OBC" )) %>% 
+  filter(term != "Intercept")
+model3.dat$term <- factor(model3.dat$term, levels = model3.dat$term)
+
+model5.dat <- model5.dat %>% 
+  mutate(lower_ci = (estimate - 1.96*std.error),
+         upper_ci = (estimate + 1.96*std.error)) %>% 
+  mutate(term = c("Intercept", "Candidate:Female", "Age:45", "Age:65", 
+                  "1 Child", "3 Children", "Lawyer", "Politician", 
+                  "Homemaker", "1 Year in Politics", "3 Years in Politics", 
+                  "8 Years in Politics", "Spouse:Politician", "Spouse:Doctor",
+                  "Spouse:Farmer", "Caste:SC/ST/OBC")) %>% 
+  filter(term != "Intercept")
+model5.dat$term <- factor(model5.dat$term, levels = model5.dat$term)
+
+#adding baselines 
+new.df <- data.frame(c("Candidate:Male", "Age:29", "No Children", "Teacher",
+                       "0 Years in Politics", "Unmarried", "Caste:Forward"),
+                        c(0,0,0,0,0,0,0),
+                        c(0,0,0,0,0,0,0),
+                        c(0,0,0,0,0,0,0),
+                        c(0,0,0,0,0,0,0),
+                        c(0,0,0,0,0,0,0),
+                        c(0,0,0,0,0,0,0))
+names(new.df) <- c("term", "estimate", "std.error", "statistic", "p.value", "lower_ci", "upper_ci")
+
+levels <- c("Candidate:Male", "Candidate:Female", "Age:29", "Age:45", "Age:65", 
+                  "No Children", "1 Child", "3 Children", "Teacher", "Lawyer", "Politician", 
+                  "Homemaker", "0 Years in Politics", "1 Year in Politics", "3 Years in Politics", 
+                  "8 Years in Politics", "Unmarried", "Spouse:Politician", "Spouse:Doctor",
+                  "Spouse:Farmer", "Caste:Forward", "Caste:SC/ST/OBC" )
+
+model1.dat <- rbind(model1.dat, new.df)
+
+model1.dat <- model1.dat %>% 
+  mutate(term = factor(term, levels = levels)) %>% 
+  arrange(term)
+
+model3.dat <- rbind(model3.dat, new.df)
+
+model3.dat <- model3.dat %>% 
+  mutate(term = factor(term, levels = levels)) %>% 
+  arrange(term)
+
+model5.dat <- rbind(model5.dat, new.df)
+
+model5.dat <- model5.dat %>% 
+  mutate(term = factor(term, levels = levels)) %>% 
+  arrange(term)
+```
+
+```{r, echo=F}
+#plot for outright hostility model 1
+model1_plot <- model1.dat %>% 
+ggplot() +
+  geom_point(aes(x = estimate, y = term),
+             color = "black") +
+  geom_segment(aes(x = lower_ci, xend = upper_ci,
+                   y = term, yend = term),
+               color = "black") +
+  geom_vline(xintercept = 0, 
+             linetype = "dashed", color = "black", alpha = 0.5) +
+  scale_y_discrete(limits = rev(levels(model1.dat$term))) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 10),
+        legend.position = "top") +
+  labs(x = "Expected Change in Probability of Winning",
+      y = "Variable")
+
+ggsave("Plot1.jpeg", plot = model1_plot, units = "in", width = 10, height = 7)
+
+#plot for outright hostility model 2
+model3_plot <- model3.dat %>% 
+ggplot() +
+  geom_point(aes(x = estimate, y = term),
+             color = "black") +
+  geom_segment(aes(x = lower_ci, xend = upper_ci,
+                   y = term, yend = term),
+               color = "black") +
+  geom_vline(xintercept = 0, 
+             linetype = "dashed", color = "black") +
+  scale_y_discrete(limits = rev(levels(model3.dat$term))) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 10),
+        legend.position = "top", axis.title.y = element_blank(), axis.title.x = element_blank()) +
+  annotate(geom = "text", x = 0.15, y = "Age:29", color = "black",
+           label = "Female Respondents", size = 2.75)
+
+#plot for outright hostility model 2
+model5_plot <- model5.dat %>% 
+ggplot() +
+  geom_point(aes(x = estimate, y = term),
+             color = "black") +
+  geom_segment(aes(x = lower_ci, xend = upper_ci,
+                   y = term, yend = term),
+               color = "black") +
+  geom_vline(xintercept = 0, 
+             linetype = "dashed", color = "black", alpha = 0.5) +
+  scale_y_discrete(limits = rev(levels(model5.dat$term))) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 10),
+        legend.position = "top", axis.title.y = element_blank(), axis.text.y = element_blank(),
+        axis.title.x = element_blank()) + 
+  annotate(geom = "text", x = 0.125, y = "Age:29", color = "black",
+           label = "Male Respondents", size = 2.75)
+
+outright_hostility_gender <- arrangeGrob(model3_plot,
+            model5_plot,
+            nrow = 1,
+            widths = c(6, 5),
+            bottom = textGrob("Expected Change in Probability of Winning", 
+                              vjust = 0.5,
+                              hjust = 0.35,
+                              gp = gpar(fontface = "bold", cex = 1)),
+            left = textGrob("Variable",
+                            hjust = 1,
+                            rot = 90,
+                            gp = gpar(fontface = "bold", cex = 1)))
+
+ggsave("Plot2.jpeg", plot = outright_hostility_gender, width = 10, height = 7, units = "in")
+```
+
+```{r warning=F, message=F, echo=F}
+#double standards 
+conjoint_final_candfem <- conjoint_final %>% 
+  filter(gender_string == "Female")
+
+conjoint_final_candmale <- conjoint_final %>% 
+  filter(gender_string == "Male")
+
+#regressions on these 
+#female candidates
+model7 <- lm(win ~ age_45 + age_65 + num_child_1 + num_child_3 + 
+                 occ_lawyer + occ_politician + occ_homemaker + years_in_pol_1 + 
+                 years_in_pol_3 + years_in_pol_8 + spouse_occ_politician + 
+                 spouse_occ_doctor + spouse_occ_farmer + caste_backward, 
+             data = conjoint_final_candfem)
+model7_out <- coeftest(model7, vcov=vcovCL(model7, type="HC1", cluster= conjoint_final_candfem$response_id))
+model7.dat <- tidy(model7_out, conf.int = TRUE, conf.level = 0.95)
+model7.dat <- model7.dat %>% 
+  mutate(lower_ci = (estimate - 1.96*std.error),
+         upper_ci = (estimate + 1.96*std.error)) %>% 
+  mutate(term = c("Intercept", "Age:45", "Age:65", 
+                  "1 Child", "3 Children", "Lawyer", "Politician", 
+                  "Homemaker", "1 Year in Politics", "3 Years in Politics", 
+                  "8 Years in Politics", "Spouse:Politician", "Spouse:Doctor",
+                  "Spouse:Farmer", "Caste:SC/ST/OBC" )) %>% 
+  filter(term != "Intercept")
+
+#male candidates
+model8 <- lm(win ~ age_45 + age_65 + num_child_1 + num_child_3 + 
+                 occ_lawyer + occ_politician + occ_homemaker + years_in_pol_1 + 
+                 years_in_pol_3 + years_in_pol_8 + spouse_occ_politician + 
+                 spouse_occ_doctor + spouse_occ_farmer + caste_backward, 
+             data = conjoint_final_candmale)
+model8_out <- coeftest(model8, vcov=vcovCL(model8, type="HC1", cluster= conjoint_final_candmale$response_id))
+model8.dat <- tidy(model8_out, conf.int = TRUE, conf.level = 0.95)
+model8.dat <- model8.dat %>% 
+  mutate(lower_ci = (estimate - 1.96*std.error),
+         upper_ci = (estimate + 1.96*std.error)) %>% 
+  mutate(term = c("Intercept", "Age:45", "Age:65", 
+                  "1 Child", "3 Children", "Lawyer", "Politician", 
+                  "Homemaker", "1 Year in Politics", "3 Years in Politics", 
+                  "8 Years in Politics", "Spouse:Politician", "Spouse:Doctor",
+                  "Spouse:Farmer", "Caste:SC/ST/OBC" )) %>% 
+  filter(term != "Intercept")
+
+#join the two models 7 and 8 
+model7.dat <- rbind(model7.dat, new.df)
+
+model7.dat <- model7.dat %>% 
+  mutate(term = factor(term, levels = levels)) %>% 
+  arrange(term) %>% 
+  filter(term != "Candidate:Male")
+
+model7.dat$term <- factor(model7.dat$term, levels = model7.dat$term)
+
+model8.dat <- rbind(model8.dat, new.df)
+
+model8.dat <- model8.dat %>% 
+  mutate(term = factor(term, levels = levels)) %>% 
+  arrange(term) %>% 
+  filter(term != "Candidate:Male")
+
+model8.dat <- model8.dat %>% 
+  rename("estimate.male" = estimate, 
+         "std.error.male" = std.error, 
+         "statistic.male" = statistic,
+         "p.value.male" = p.value,
+         "lower_ci.male" = lower_ci,
+         "upper_ci.male" = upper_ci)
+
+model8.dat$term <- factor(model8.dat$term, levels = model8.dat$term)
+
+ds.dat <- left_join(model7.dat, model8.dat, by = "term")
+
+ds.dat <- ds.dat %>% 
+  mutate(var.female = (std.error * sqrt(nrow(conjoint_final_candfem)))^2,
+         var.male = (std.error.male * sqrt(nrow(conjoint_final_candmale)))^2,
+         diff_in_means = estimate - estimate.male,
+         se.dim = sqrt((var.female/nrow(conjoint_final_candfem)) + (var.male/nrow(conjoint_final_candmale))),
+         lower_ci.dim = (diff_in_means - 1.96*se.dim),
+         upper_ci.dim = (diff_in_means + 1.96*se.dim))
+
+ds.dat$term <- factor(ds.dat$term, levels = ds.dat$term)
+
+```
+
+```{r results='asis', warning=F, message=F, echo=F}
+stargazer(model7_out,
+          model8_out,
+          type = "latex",
+          header = FALSE,
+          title = "Average Marginal Component Effects for Attributes",
+          column.labels = c("Female Candidates", "Male Candidates"),
+          covariate.labels = c("Age: 45",
+                               "Age: 65",
+                               "1 Child",
+                               "3 Children",
+                               "Lawyer",
+                               "Politician",
+                               "Homemaker",
+                               "1 Year in Politics",
+                               "3 Years in Politics",
+                               "8 Years in Politics",
+                               "Spouse: Politician",
+                               "Spouse: Doctor",
+                               "Spouse: Farmer",
+                               "Caste: SC/ST/OBC"),
+          star.cutoffs = c(.05,.01,.001),
+          out = "ACME3.tex",
+          dep.var.caption = "Percentage Point Change in Probability of Winning",
+          float = TRUE,
+          font.size = "footnotesize")
+```
+
+```{r echo=F, include=F}
+#plot for double standard 
+##female candidates
+model7_plot <- model7.dat %>% 
+ggplot() +
+  geom_point(aes(x = estimate, y = term),
+             color = "black") +
+  geom_segment(aes(x = lower_ci, xend = upper_ci,
+                   y = term, yend = term),
+               color = "black") +
+  geom_vline(xintercept = 0, 
+             linetype = "dashed", color = "black") +
+  scale_y_discrete(limits = rev(levels(model7.dat$term))) +
+  theme_bw() + 
+  theme(axis.title.y = element_blank(),
+        axis.title.x = element_blank()) + 
+  annotate(geom = "text", x = 0.08, y = "Age:65", color = "black",
+           label = "Female Candidates", size = 3)
+
+##male candidates
+model8_plot <- model8.dat %>% 
+ggplot() +
+  geom_point(aes(x = estimate.male, y = term),
+             color = "black") +
+  geom_segment(aes(x = lower_ci.male, xend = upper_ci.male,
+                   y = term, yend = term),
+               color = "black") +
+  geom_vline(xintercept = 0, 
+             linetype = "dashed", color = "black", alpha = 0.5) +
+  scale_y_discrete(limits = rev(levels(model8.dat$term))) +
+  theme_bw() + 
+  theme(axis.title.y = element_blank(), axis.text.y = element_blank(),
+        axis.title.x = element_blank()) + 
+  annotate(geom = "text", x = 0.1, y = "Age:65", color = "black",
+           label = "Male Candidates", size = 3)
+
+diff_in_means <- ds.dat %>% 
+  ggplot() + 
+  geom_point(aes(x = diff_in_means, y = term),
+             color = "black") +
+  geom_segment(aes(x = lower_ci.dim, xend = upper_ci.dim,
+                   y = term, yend = term),
+               color = "black") +
+  geom_vline(xintercept = 0, 
+             linetype = "dashed", color = "black", alpha = 0.5) +
+  scale_y_discrete(limits = rev(levels(ds.dat$term))) +
+  theme_bw() + 
+  theme(axis.title.y = element_blank(), axis.text.y = element_blank(),
+        axis.title.x = element_blank()) +
+  annotate(geom = "text", x = -0.085, y = "Age:65", color = "black",
+           label = "Difference in Means", size = 3)
+
+#side by side plots
+double_standard_gender <- arrangeGrob(model7_plot,
+            model8_plot,
+            diff_in_means,
+            nrow = 1,
+            widths = c(3.8, 3, 3),
+            bottom = textGrob("Expected Change in Probability of Winning", 
+                              vjust = 0.5,
+                              hjust = 0.35,
+                              gp = gpar(fontface = "bold", cex = 1)),
+            left = textGrob("Variable",
+                            hjust = 1,
+                            rot = 90,
+                            gp = gpar(fontface = "bold", cex = 1)))
+
+ggsave("Plot3.jpeg", plot = double_standard_gender, width = 12, height = 7, units = "in")
+```
+
+```{r echo=F, include=F}
+#double bind results 
+conjoint_final <- conjoint_final %>% 
+  mutate(category = case_when(
+    (gender_female == "0" & num_child_0 == "1" & spouse_occ_unmarried == "1") ~ "1", #male, unmarried, no kids
+    (gender_female == "0" & num_child_0 == "0" & spouse_occ_unmarried == "1") ~ "2", #male, unmarried, kids
+    (gender_female == "0" & num_child_0 == "1" & spouse_occ_unmarried == "0") ~ "3", #male, married, no kids
+    (gender_female == "0" & num_child_0 == "0" & spouse_occ_unmarried == "0") ~ "4", #male, married, kids
+    (gender_female == "1" & num_child_0 == "1" & spouse_occ_unmarried == "1") ~ "5", #female, unmarried, no kids
+    (gender_female == "1" & num_child_0 == "0" & spouse_occ_unmarried == "1") ~ "6", #female, unmarried, kids
+    (gender_female == "1" & num_child_0 == "1" & spouse_occ_unmarried == "0") ~ "7", #female, married, no kids
+    (gender_female == "1" & num_child_0 == "0" & spouse_occ_unmarried == "0") ~ "8", #female, married, kids
+  ))
+
+model9 <- lm(win ~ category -1, data = conjoint_final)
+model9_out <- coeftest(model9, vcov=vcovCL(model9, type="HC1", cluster= conjoint_final$response_id))
+model9.dat <- tidy(model9_out, conf.int = TRUE, conf.level = 0.95)
+
+model9.dat$term <- c("Male, Unmarried, No Children", "Male, Unmarried, Kids", "Male, Married, No Children", "Male, Married, Kids", "Female, Unmarried, No Children", "Female, Unmarried, Kids", "Female, Married, No Children", "Female, Married, Kids")
+
+model9.dat$gender <- c("Male", "Male", "Male", "Male", 
+                       "Female", "Female", "Female", "Female")
+
+model9.dat <- model9.dat %>% 
+  mutate(lower_ci = (estimate - 1.96*std.error),
+         upper_ci = (estimate + 1.96*std.error))
+model9.dat$term <- factor(model9.dat$term, levels = model9.dat$term)
+
+#plot
+model9_plot <- model9.dat %>% 
+  ggplot() +
+  geom_point(aes(x = estimate, y = term, color = gender)) +
+  geom_segment(aes(x = lower_ci, xend = upper_ci,
+                   y = term, yend = term, color = gender),
+               linetype = "dashed") +
+  scale_y_discrete(labels = c("Male, \nUnmarried, \nNo Children", 
+                              "Male, \nUnmarried, \nKids", 
+                              "Male, \nMarried, \nNo Children", 
+                              "Male, \nMarried, \nKids", 
+                              "Female, \nUnmarried, \nNo Children", 
+                              "Female, \nUnmarried, \nKids", 
+                              "Female, \nMarried, \nNo Children", 
+                              "Female, \nMarried, \nKids")) +
+  theme_bw() +
+  coord_flip() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 10),
+        legend.position = "top", 
+        axis.text.x = element_text(face = "bold"),
+        axis.text.y = element_text(face = "bold"),
+        axis.title.x = element_text(size = 10,
+                                    face = "bold"),
+        axis.title.y = element_text(size = 10, 
+                                    face = "bold")) +
+  labs(x = "Expected Change in Probability of Winning",
+      y = "Variable",
+      color = "Gender")
+
+ggsave("Plot4.jpeg", plot = model9_plot, width = 10, height = 7, units = "in")
+```
+
+```{r echo=F, results='asis', warning=F, message=F}
+stargazer(model9_out,
+          type = "latex",
+          header = FALSE,
+          title = "Average Marginal Component Effects for Candidate Trait Categories",
+          column.labels = "Category Model",
+          covariate.labels = c("Male, \nUnmarried, \nNo Children",
+                              "Male, \nUnmarried, \nKids", 
+                              "Male, \nMarried, \nNo Children", 
+                              "Male, \nMarried, \nKids", 
+                              "Female, \nUnmarried, \nNo Children", 
+                              "Female, \nUnmarried, \nKids", 
+                              "Female, \nMarried, \nNo Children", 
+                              "Female, \nMarried, \nKids"),
+          star.cutoffs = c(.05,.01,.001),
+          out = "ACME4.tex",
+          dep.var.caption = "Percentage Point Change in Probability of Winning",
+          float = TRUE,
+          font.size = "small")
+```
+
+```{r echo = FALSE, warning = F, message = F}
+#check category advantages 
+subset1 <- conjoint_final %>% 
+  filter(category == "1" | category == "4")
+subset1.model <- lm(win ~ category, data = subset1)
+subset1.model.out <- coeftest(subset1.model, vcov=vcovCL(subset1.model, type="HC1", cluster= subset1$response_id))
+
+subset2 <- conjoint_final %>% 
+  filter(category == "5" | category == "8")
+subset2.model <- lm(win ~ category, data = subset2)
+subset2.model.out <- coeftest(subset2.model, vcov=vcovCL(subset2.model, type="HC1", cluster= subset2$response_id))
+
+subset3 <- conjoint_final %>% 
+  filter(category == "3" | category == "4")
+subset3.model <- lm(win ~ category, data = subset3)
+subset3.model.out <- coeftest(subset3.model, vcov=vcovCL(subset3.model, type="HC1", cluster= subset3$response_id))
+
+subset4 <- conjoint_final %>% 
+  filter(category == "7" | category == "8")
+subset4.model <- lm(win ~ category, data = subset4)
+subset4.model.out <- coeftest(subset4.model, vcov=vcovCL(subset4.model, type="HC1", cluster= subset4$response_id))
+
+```
+
+
+```{r warning=F, message=F, echo=FALSE}
+#robustness check 
+robust.conjoint <- read.csv("conjoint_robustness.csv", header = T)
+
+robust.conjoint.spread <- robust.conjoint %>% 
+  mutate(gender_male = case_when(
+    (gender == "Male") ~ "1",
+    TRUE ~ "0"
+  ),
+  gender_female = case_when(
+    (gender == "Female") ~ "1",
+    TRUE ~ "0"
+  ),
+  age_29 = case_when(
+    (age == "29") ~ "1",
+    TRUE ~ "0"
+  ),
+  age_45 = case_when(
+    (age == "45") ~ "1",
+    TRUE ~ "0"
+  ),
+  age_65 = case_when(
+    (age == "65") ~ "1",
+    TRUE ~ "0"
+  ),
+  num_child_0 = case_when(
+    (num_children == "0") ~ "1",
+    TRUE ~ "0"
+  ),
+   num_child_1 = case_when(
+    (num_children == "1") ~ "1",
+    TRUE ~ "0"
+  ),
+   num_child_3 = case_when(
+    (num_children == "3") ~ "1",
+    TRUE ~ "0"
+  ),
+  occ_teacher = case_when(
+    (occupation == "Teacher") ~ "1",
+    TRUE ~ "0"
+  ),
+  occ_lawyer = case_when(
+    (occupation == "Lawyer") ~ "1",
+    TRUE ~ "0"
+  ),
+  occ_politician = case_when(
+    (occupation == "Politician") ~ "1",
+    TRUE ~ "0"
+  ),
+  occ_homemaker = case_when(
+    (occupation == "Homemaker") ~ "1",
+    TRUE ~ "0"
+  ),
+  years_in_pol_0 = case_when(
+    (num_years_politics == "0") ~ "1",
+    TRUE ~ "0"
+  ),
+   years_in_pol_1 = case_when(
+    (num_years_politics == "1 year") ~ "1",
+    TRUE ~ "0"
+  ),
+   years_in_pol_3 = case_when(
+    (num_years_politics == "3 years") ~ "1",
+    TRUE ~ "0"
+  ),
+   years_in_pol_8 = case_when(
+    (num_years_politics == "8 years") ~ "1",
+    TRUE ~ "0"
+  ),
+  spouse_occ_politician = case_when(
+    (spouse_occupation == "Politician") ~ "1",
+    TRUE ~ "0"
+  ),
+  spouse_occ_doctor = case_when(
+    (spouse_occupation == "Doctor") ~ "1",
+    TRUE ~ "0"
+  ),spouse_occ_farmer = case_when(
+    (spouse_occupation == "Farmer") ~ "1",
+    TRUE ~ "0"
+  ),spouse_occ_unmarried = case_when(
+    (spouse_occupation == "Unmarried") ~ "1",
+    TRUE ~ "0"
+  ),
+  caste_forward = case_when(
+    (caste == "Forward caste") ~ "1",
+    TRUE ~ "0"
+  ),
+  caste_backward = case_when(
+    (caste == "SC/ST/OBC") ~ "1",
+    TRUE ~ "0"
+  ))
+```
+
+```{r echo=F}
+#drop original rows except for gender (easier analysis)
+robust.conjoint.spread <- robust.conjoint.spread %>% 
+  select(-age, -occupation, -spouse_occupation, -num_children, -num_years_politics, -caste)
+
+#rename 
+robust.conjoint.spread <- robust.conjoint.spread %>% 
+  rename("gender_string" = gender)
+
+#append respondent gender 
+robust.conjoint.final <- left_join(robust.conjoint.spread, survey.data, by = "response_id")
+robust.conjoint.final <- robust.conjoint.final %>% 
+  rename("respondent_gender" = gender) %>% 
+  select(1, respondent_gender, 2:25)
+
+#write.csv(robust.conjoint.final, file = "robust_conjoint_data_final.csv")
+```
+
+```{r warning=F, message=F, echo=FALSE}
+#robust checks
+#outright hostility 
+robust.model1 <- lm(win ~ gender_female + age_45 + age_65 + num_child_1 + num_child_3 + 
+                 occ_lawyer + occ_politician + occ_homemaker + years_in_pol_1 + 
+                 years_in_pol_3 + years_in_pol_8 + spouse_occ_politician + 
+                 spouse_occ_doctor + spouse_occ_farmer + caste_backward, 
+             data = robust.conjoint.final)
+
+robust.model1.out <- coeftest(robust.model1, vcov=vcovCL(robust.model1, type="HC1", cluster= robust.conjoint.final$response_id))
+
+#conjoint female subset 
+rob.conjoint.fem <- robust.conjoint.final %>% 
+  filter(respondent_gender == "Female")
+
+rob.conjoint.male <- robust.conjoint.final %>% 
+  filter(respondent_gender == "Male")
+
+#models on subsets 
+##female 
+robust.model2 <- lm(win ~ gender_female + age_45 + age_65 + num_child_1 + num_child_3 + 
+                 occ_lawyer + occ_politician + occ_homemaker + years_in_pol_1 + 
+                 years_in_pol_3 + years_in_pol_8 + spouse_occ_politician + 
+                 spouse_occ_doctor + spouse_occ_farmer + caste_backward, 
+             data = rob.conjoint.fem)
+robust.model2.out <- coeftest(robust.model2, vcov=vcovCL(robust.model2, type="HC1", cluster= rob.conjoint.fem$response_id))
+
+#male
+robust.model3 <- lm(win ~ gender_female + age_45 + age_65 + num_child_1 + num_child_3 + 
+                 occ_lawyer + occ_politician + occ_homemaker + years_in_pol_1 + 
+                 years_in_pol_3 + years_in_pol_8 + spouse_occ_politician + 
+                 spouse_occ_doctor + spouse_occ_farmer + caste_backward,
+             data = rob.conjoint.male)
+robust.model3.out <- coeftest(robust.model3, vcov=vcovCL(robust.model3, type="HC1", cluster= rob.conjoint.male$response_id))
+```
+
+```{r results='asis', echo=FALSE}
+#print results 
+stargazer(robust.model1.out, robust.model2.out, robust.model3.out,
+          type = "latex",
+          header = FALSE,
+          title = "Average Marginal Component Effects for Attributes (Robustness Check)",
+          column.labels = c("Full Model", "Female Respondents", "Male Respondents"),
+          covariate.labels = c("Candidate Gender: Female",
+                               "Age: 45",
+                               "Age: 65",
+                               "1 Child",
+                               "3 Children",
+                               "Lawyer",
+                               "Politician",
+                               "Homemaker",
+                               "1 Year in Politics",
+                               "3 Years in Politics",
+                               "8 Years in Politics",
+                               "Spouse: Politician",
+                               "Spouse: Doctor",
+                               "Spouse: Farmer",
+                               "Caste: SC/ST/OBC"),
+          star.cutoffs = c(.05,.01,.001),
+          out = "ACME1_robust.tex",
+          dep.var.caption = "Percentage Point Change in Probability of Winning",
+          float = TRUE,
+          font.size = "footnotesize",
+          dep.var.labels.include = FALSE)
+```
+
+```{r warning=F, message=F, echo=FALSE}
+#data frames for plotting 
+robust.model1.dat <- tidy(robust.model1.out, conf.int = TRUE, conf.level = 0.95)
+robust.model2.dat <- tidy(robust.model2.out, conf.int = TRUE, conf.level = 0.95)
+robust.model3.dat <- tidy(robust.model3.out, conf.int = TRUE, conf.level = 0.95)
+
+#add cis 
+robust.model1.dat <- robust.model1.dat %>% 
+  mutate(lower_ci = (estimate - 1.96*std.error),
+         upper_ci = (estimate + 1.96*std.error)) %>% 
+  mutate(term = c("Intercept", "Candidate:Female", "Age:45", "Age:65", 
+                  "1 Child", "3 Children", "Lawyer", "Politician", 
+                  "Homemaker", "1 Year in Politics", "3 Years in Politics", 
+                  "8 Years in Politics", "Spouse:Politician", "Spouse:Doctor",
+                  "Spouse:Farmer", "Caste:SC/ST/OBC" )) %>% 
+  filter(term != "Intercept")
+robust.model1.dat$term <- factor(robust.model1.dat$term, levels = robust.model1.dat$term)
+
+robust.model2.dat <- robust.model2.dat %>% 
+  mutate(lower_ci = (estimate - 1.96*std.error),
+         upper_ci = (estimate + 1.96*std.error)) %>% 
+  mutate(term = c("Intercept", "Candidate:Female", "Age:45", "Age:65", 
+                  "1 Child", "3 Children", "Lawyer", "Politician", 
+                  "Homemaker", "1 Year in Politics", "3 Years in Politics", 
+                  "8 Years in Politics", "Spouse:Politician", "Spouse:Doctor",
+                  "Spouse:Farmer", "Caste:SC/ST/OBC" )) %>% 
+  filter(term != "Intercept")
+robust.model2.dat$term <- factor(robust.model2.dat$term, levels = robust.model2.dat$term)
+
+robust.model3.dat <- robust.model3.dat %>% 
+  mutate(lower_ci = (estimate - 1.96*std.error),
+         upper_ci = (estimate + 1.96*std.error)) %>% 
+  mutate(term = c("Intercept", "Candidate:Female", "Age:45", "Age:65", 
+                  "1 Child", "3 Children", "Lawyer", "Politician", 
+                  "Homemaker", "1 Year in Politics", "3 Years in Politics", 
+                  "8 Years in Politics", "Spouse:Politician", "Spouse:Doctor",
+                  "Spouse:Farmer", "Caste:SC/ST/OBC")) %>% 
+  filter(term != "Intercept")
+robust.model3.dat$term <- factor(robust.model3.dat$term, levels = robust.model3.dat$term)
+
+#adding baselines 
+robust.model1.dat <- rbind(robust.model1.dat, new.df)
+
+robust.model1.dat <- robust.model1.dat %>% 
+  mutate(term = factor(term, levels = levels)) %>% 
+  arrange(term)
+
+robust.model2.dat <- rbind(robust.model2.dat, new.df)
+
+robust.model2.dat <- robust.model2.dat %>% 
+  mutate(term = factor(term, levels = levels)) %>% 
+  arrange(term)
+
+robust.model3.dat <- rbind(robust.model3.dat, new.df)
+
+robust.model3.dat <- robust.model3.dat %>% 
+  mutate(term = factor(term, levels = levels)) %>% 
+  arrange(term)
+```
+
+```{r, warning=F, message=F, echo=FALSE}
+#plot for outright hostility model 1
+rob.model1_plot <- robust.model1.dat %>% 
+ggplot() +
+  geom_point(aes(x = estimate, y = term),
+             color = "black") +
+  geom_segment(aes(x = lower_ci, xend = upper_ci,
+                   y = term, yend = term),
+               color = "black") +
+  geom_vline(xintercept = 0, 
+             linetype = "dashed", color = "black", alpha = 0.5) +
+  scale_y_discrete(limits = rev(levels(robust.model1.dat$term))) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 10),
+        legend.position = "top") +
+  labs(title = "Robust Testing for Outright Hostility",
+      x = "Expected Change in Probability of Winning",
+      y = "Variable")
+
+ggsave("Robust Plot1.jpeg", plot = rob.model1_plot, units = "in", width = 10, height = 7)
+
+#plot for outright hostility model 2
+rob.model2_plot <- robust.model2.dat %>% 
+ggplot() +
+  geom_point(aes(x = estimate, y = term),
+             color = "black") +
+  geom_segment(aes(x = lower_ci, xend = upper_ci,
+                   y = term, yend = term),
+               color = "black") +
+  geom_vline(xintercept = 0, 
+             linetype = "dashed", color = "black") +
+  scale_y_discrete(limits = rev(levels(robust.model2.dat$term))) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 10),
+        legend.position = "top", axis.title.y = element_blank(), axis.title.x = element_blank()) +
+  annotate(geom = "text", x = 0.15, y = "Age:29", color = "black",
+           label = "Female Respondents", size = 2.75)
+
+#plot for outright hostility model 2
+rob.model3_plot <- robust.model3.dat %>% 
+ggplot() +
+  geom_point(aes(x = estimate, y = term),
+             color = "black") +
+  geom_segment(aes(x = lower_ci, xend = upper_ci,
+                   y = term, yend = term),
+               color = "black") +
+  geom_vline(xintercept = 0, 
+             linetype = "dashed", color = "black", alpha = 0.5) +
+  scale_y_discrete(limits = rev(levels(robust.model3.dat$term))) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 10),
+        legend.position = "top", axis.title.y = element_blank(), axis.text.y = element_blank(),
+        axis.title.x = element_blank()) + 
+  annotate(geom = "text", x = 0.125, y = "Age:29", color = "black",
+           label = "Male Respondents", size = 2.75)
+
+rob.outright_hostility_gender <- arrangeGrob(rob.model2_plot,
+            rob.model3_plot,
+            nrow = 1,
+            widths = c(5, 4),
+            top = textGrob("Robust Testing for Outright Hostility Among Respondents by Gender", 
+                           vjust = 1, 
+                           gp = gpar(fontface = "bold", cex = 1)),
+            bottom = textGrob("Expected Change in Probability of Winning", 
+                              vjust = 0.5,
+                              hjust = 0.35,
+                              gp = gpar(fontface = "bold", cex = 1)),
+            left = textGrob("Variable",
+                            hjust = 1,
+                            rot = 90,
+                            gp = gpar(fontface = "bold", cex = 1)))
+
+ggsave("Robust Plot2.jpeg", plot = rob.outright_hostility_gender, width = 10, height = 7, units = "in")
+```
+
+```{r warning=F, message=F, echo=FALSE}
+#double standards
+rob.conjoint.candfem <- robust.conjoint.final %>% 
+  filter(gender_string == "Female")
+
+rob.conjoint.candmale <- robust.conjoint.final %>% 
+  filter(gender_string == "Male")
+
+#regressions on these 
+#female candidates
+rob.model4 <- lm(win ~ age_45 + age_65 + num_child_1 + num_child_3 + 
+                 occ_lawyer + occ_politician + occ_homemaker + years_in_pol_1 + 
+                 years_in_pol_3 + years_in_pol_8 + spouse_occ_politician + 
+                 spouse_occ_doctor + spouse_occ_farmer + caste_backward, 
+             data = rob.conjoint.candfem)
+rob.model4.out <- coeftest(rob.model4, vcov=vcovCL(rob.model4, type="HC1", cluster= rob.conjoint.candfem$response_id))
+rob.model4.dat <- tidy(rob.model4.out, conf.int = TRUE, conf.level = 0.95)
+rob.model4.dat <- rob.model4.dat %>% 
+  mutate(lower_ci = (estimate - 1.96*std.error),
+         upper_ci = (estimate + 1.96*std.error)) %>% 
+  mutate(term = c("Intercept", "Age:45", "Age:65", 
+                  "1 Child", "3 Children", "Lawyer", "Politician", 
+                  "Homemaker", "1 Year in Politics", "3 Years in Politics", 
+                  "8 Years in Politics", "Spouse:Politician", "Spouse:Doctor",
+                  "Spouse:Farmer", "Caste:SC/ST/OBC" )) %>% 
+  filter(term != "Intercept")
+
+#male candidates
+rob.model5 <- lm(win ~ age_45 + age_65 + num_child_1 + num_child_3 + 
+                 occ_lawyer + occ_politician + occ_homemaker + years_in_pol_1 + 
+                 years_in_pol_3 + years_in_pol_8 + spouse_occ_politician + 
+                 spouse_occ_doctor + spouse_occ_farmer + caste_backward, 
+             data = rob.conjoint.candmale)
+rob.model5.out <- coeftest(rob.model5, vcov=vcovCL(rob.model5, type="HC1", cluster= rob.conjoint.candmale$response_id))
+rob.model5.dat <- tidy(rob.model5.out, conf.int = TRUE, conf.level = 0.95)
+rob.model5.dat <- rob.model5.dat %>% 
+  mutate(lower_ci = (estimate - 1.96*std.error),
+         upper_ci = (estimate + 1.96*std.error)) %>% 
+  mutate(term = c("Intercept", "Age:45", "Age:65", 
+                  "1 Child", "3 Children", "Lawyer", "Politician", 
+                  "Homemaker", "1 Year in Politics", "3 Years in Politics", 
+                  "8 Years in Politics", "Spouse:Politician", "Spouse:Doctor",
+                  "Spouse:Farmer", "Caste:SC/ST/OBC" )) %>% 
+  filter(term != "Intercept")
+
+#join the two models 7 and 8 
+rob.model4.dat <- rbind(rob.model4.dat, new.df)
+
+rob.model4.dat <- rob.model4.dat %>% 
+  mutate(term = factor(term, levels = levels)) %>% 
+  arrange(term) %>% 
+  filter(term != "Candidate:Male")
+
+rob.model4.dat$term <- factor(rob.model4.dat$term, levels = rob.model4.dat$term)
+
+rob.model5.dat <- rbind(rob.model5.dat, new.df)
+
+rob.model5.dat <- rob.model5.dat %>% 
+  mutate(term = factor(term, levels = levels)) %>% 
+  arrange(term) %>% 
+  filter(term != "Candidate:Male")
+
+rob.model5.dat <- rob.model5.dat %>% 
+  rename("estimate.male" = estimate, 
+         "std.error.male" = std.error, 
+         "statistic.male" = statistic,
+         "p.value.male" = p.value,
+         "lower_ci.male" = lower_ci,
+         "upper_ci.male" = upper_ci)
+
+rob.model5.dat$term <- factor(rob.model5.dat$term, levels = rob.model5.dat$term)
+
+ds.dat.robust <- left_join(rob.model4.dat, rob.model5.dat, by = "term")
+
+ds.dat.robust <- ds.dat.robust %>% 
+  mutate(var.female = (std.error * sqrt(nrow(rob.conjoint.candfem)))^2,
+         var.male = (std.error.male * sqrt(nrow(rob.conjoint.candmale)))^2,
+         diff_in_means = estimate - estimate.male,
+         se.dim = sqrt((var.female/nrow(rob.conjoint.candfem)) + (var.male/nrow(rob.conjoint.candmale))),
+         lower_ci.dim = (diff_in_means - 1.96*se.dim),
+         upper_ci.dim = (diff_in_means + 1.96*se.dim))
+
+ds.dat.robust$term <- factor(ds.dat.robust$term, levels = ds.dat.robust$term)
+```
+
+```{r results='asis', warning=F, message=F, echo=F}
+stargazer(rob.model4.out,
+          rob.model5.out,
+          type = "latex",
+          header = FALSE,
+          title = "Average Marginal Component Effects for Attributes (Robust Check)",
+          column.labels = c("Female Candidates", "Male Candidates"),
+          covariate.labels = c("Age: 45",
+                               "Age: 65",
+                               "1 Child",
+                               "3 Children",
+                               "Lawyer",
+                               "Politician",
+                               "Homemaker",
+                               "1 Year in Politics",
+                               "3 Years in Politics",
+                               "8 Years in Politics",
+                               "Spouse: Politician",
+                               "Spouse: Doctor",
+                               "Spouse: Farmer",
+                               "Caste: SC/ST/OBC"),
+          star.cutoffs = c(.05,.01,.001),
+          out = "ACME2_robust.tex",
+          dep.var.caption = "Percentage Point Change in Probability of Winning",
+          float = TRUE,
+          font.size = "footnotesize")
+```
+
+```{r echo=F, include=F}
+#plot for double standard 
+##female candidates
+rob.model4_plot <- rob.model4.dat %>% 
+ggplot() +
+  geom_point(aes(x = estimate, y = term),
+             color = "black") +
+  geom_segment(aes(x = lower_ci, xend = upper_ci,
+                   y = term, yend = term),
+               color = "black") +
+  geom_vline(xintercept = 0, 
+             linetype = "dashed", color = "black") +
+  scale_y_discrete(limits = rev(levels(rob.model4.dat$term))) +
+  theme_bw() + 
+  theme(axis.title.y = element_blank(),
+        axis.title.x = element_blank()) + 
+  annotate(geom = "text", x = 0.13, y = "No Children", color = "black",
+           label = "Female Candidates", size = 3)
+
+##male candidates
+rob.model5_plot <- rob.model5.dat %>% 
+ggplot() +
+  geom_point(aes(x = estimate.male, y = term),
+             color = "black") +
+  geom_segment(aes(x = lower_ci.male, xend = upper_ci.male,
+                   y = term, yend = term),
+               color = "black") +
+  geom_vline(xintercept = 0, 
+             linetype = "dashed", color = "black", alpha = 0.5) +
+  scale_y_discrete(limits = rev(levels(rob.model5.dat$term))) +
+  theme_bw() + 
+  theme(axis.title.y = element_blank(), axis.text.y = element_blank(),
+        axis.title.x = element_blank()) + 
+  annotate(geom = "text", x = 0.15, y = "No Children", color = "black",
+           label = "Male Candidates", size = 3)
+
+diff_in_means_robust <- ds.dat.robust %>% 
+  ggplot() + 
+  geom_point(aes(x = diff_in_means, y = term),
+             color = "black") +
+  geom_segment(aes(x = lower_ci.dim, xend = upper_ci.dim,
+                   y = term, yend = term),
+               color = "black") +
+  geom_vline(xintercept = 0, 
+             linetype = "dashed", color = "black", alpha = 0.5) +
+  scale_y_discrete(limits = rev(levels(ds.dat.robust$term))) +
+  theme_bw() + 
+  theme(axis.title.y = element_blank(), axis.text.y = element_blank(),
+        axis.title.x = element_blank()) +
+  annotate(geom = "text", x = -0.125, y = "No Children", color = "black",
+           label = "Difference in Means", size = 3)
+
+#side by side plots
+rob.double_standard_gender <- arrangeGrob(rob.model4_plot,
+            rob.model5_plot,
+            diff_in_means_robust,
+            nrow = 1,
+            widths = c(3.8, 3, 3),
+            top = textGrob("Robust Testing for Double Standards by Candidate Gender", 
+                           vjust = 1,
+                           gp = gpar(fontface = "bold", cex = 1)),
+            bottom = textGrob("Expected Change in Probability of Winning", 
+                              vjust = 0.5,
+                              hjust = 0.35,
+                              gp = gpar(fontface = "bold", cex = 1)),
+            left = textGrob("Variable",
+                            hjust = 1,
+                            rot = 90,
+                            gp = gpar(fontface = "bold", cex = 1)))
+
+ggsave("Robust Plot3.jpeg", plot = rob.double_standard_gender, width = 12, height = 7, units = "in")
+```
+
+```{r warning=F, message=F, echo=FALSE}
+#double bind
+robust.conjoint.final <- robust.conjoint.final %>% 
+  mutate(category = case_when(
+    (gender_female == "0" & num_child_0 == "1" & spouse_occ_unmarried == "1") ~ "1", #male, unmarried, no kids
+    (gender_female == "0" & num_child_0 == "0" & spouse_occ_unmarried == "1") ~ "2", #male, unmarried, kids
+    (gender_female == "0" & num_child_0 == "1" & spouse_occ_unmarried == "0") ~ "3", #male, married, no kids
+    (gender_female == "0" & num_child_0 == "0" & spouse_occ_unmarried == "0") ~ "4", #male, married, kids
+    (gender_female == "1" & num_child_0 == "1" & spouse_occ_unmarried == "1") ~ "5", #female, unmarried, no kids
+    (gender_female == "1" & num_child_0 == "0" & spouse_occ_unmarried == "1") ~ "6", #female, unmarried, kids
+    (gender_female == "1" & num_child_0 == "1" & spouse_occ_unmarried == "0") ~ "7", #female, married, no kids
+    (gender_female == "1" & num_child_0 == "0" & spouse_occ_unmarried == "0") ~ "8", #female, married, kids
+  ))
+
+rob.model6 <- lm(win ~ category -1, data = robust.conjoint.final)
+rob.model6.out <- coeftest(rob.model6, vcov=vcovCL(rob.model6, type="HC1", cluster= robust.conjoint.final$response_id))
+rob.model6.dat <- tidy(rob.model6.out, conf.int = TRUE, conf.level = 0.95)
+
+rob.model6.dat$term <- c("Male, Unmarried, No Children", "Male, Unmarried, Kids", "Male, Married, No Children", "Male, Married, Kids", "Female, Unmarried, No Children", "Female, Unmarried, Kids", "Female, Married, No Children", "Female, Married, Kids")
+
+rob.model6.dat$gender <- c("Male", "Male", "Male", "Male", 
+                       "Female", "Female", "Female", "Female")
+
+rob.model6.dat <- rob.model6.dat %>% 
+  mutate(lower_ci = (estimate - 1.96*std.error),
+         upper_ci = (estimate + 1.96*std.error))
+rob.model6.dat$term <- factor(rob.model6.dat$term, levels = rob.model6.dat$term)
+
+#plot
+rob.model6.plot <- rob.model6.dat %>% 
+  ggplot() +
+  geom_point(aes(x = estimate, y = term, color = gender)) +
+  geom_segment(aes(x = lower_ci, xend = upper_ci,
+                   y = term, yend = term, color = gender),
+               linetype = "dashed") +
+  scale_y_discrete(labels = c("Male, \nUnmarried, \nNo Children", 
+                              "Male, \nUnmarried, \nKids", 
+                              "Male, \nMarried, \nNo Children", 
+                              "Male, \nMarried, \nKids", 
+                              "Female, \nUnmarried, \nNo Children", 
+                              "Female, \nUnmarried, \nKids", 
+                              "Female, \nMarried, \nNo Children", 
+                              "Female, \nMarried, \nKids")) +
+  theme_bw() +
+  coord_flip() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 10),
+        legend.position = "top", 
+        axis.text.x = element_text(face = "bold"),
+        axis.text.y = element_text(face = "bold"),
+        axis.title.x = element_text(size = 10,
+                                    face = "bold"),
+        axis.title.y = element_text(size = 10, 
+                                    face = "bold")) +
+  labs(title = "Robust Testing for Double Bind by Candidate Gender",
+      x = "Expected Change in Probability of Winning",
+      y = "Variable",
+      color = "Gender")
+
+ggsave("Robust Plot4.jpeg", plot = rob.model6.plot, width = 10, height = 7, units = "in")
+```
+
+```{r echo=F, results='asis', warning=F, message=F}
+stargazer(rob.model6.out,
+          type = "latex",
+          header = FALSE,
+          title = "Average Marginal Component Effects for Candidate Trait Categories (Robust Check)",
+          column.labels = "Category Model",
+          covariate.labels = c("Male, \nUmarried, \nNo Children", 
+                               "Male, \nUnmarried, \nKids", 
+                              "Male, \nMarried, \nNo Children", 
+                              "Male, \nMarried, \nKids", 
+                              "Female, \nUnmarried, \nNo Children", 
+                              "Female, \nUnmarried, \nKids", 
+                              "Female, \nMarried, \nNo Children", 
+                              "Female, \nMarried, \nKids"),
+          star.cutoffs = c(.05,.01,.001),
+          out = "ACME3_robust.tex",
+          dep.var.caption = "Percentage Point Change in Probability of Winning",
+          float = TRUE,
+          font.size = "small")
+```
+
+```{r echo = FALSE, warning = F, message = F}
+#check category advantages 
+rob.subset1 <- robust.conjoint.final %>% 
+  filter(category == "1" | category == "4")
+rob.subset1.model <- lm(win ~ category, data = rob.subset1)
+rob.subset1.model.out <- coeftest(rob.subset1.model, vcov=vcovCL(rob.subset1.model, type="HC1", cluster= rob.subset1$response_id))
+
+rob.subset2 <- robust.conjoint.final %>% 
+  filter(category == "5" | category == "8")
+rob.subset2.model <- lm(win ~ category, data = rob.subset2)
+rob.subset2.model.out <- coeftest(rob.subset2.model, vcov=vcovCL(rob.subset2.model, type="HC1", cluster= rob.subset2$response_id))
+
+rob.subset3 <- robust.conjoint.final %>% 
+  filter(category == "3" | category == "4")
+rob.subset3.model <- lm(win ~ category, data = rob.subset3)
+rob.subset3.model.out <- coeftest(rob.subset3.model, vcov=vcovCL(rob.subset3.model, type="HC1", cluster= rob.subset3$response_id))
+
+rob.subset4 <- robust.conjoint.final %>% 
+  filter(category == "7" | category == "8")
+rob.subset4.model <- lm(win ~ category, data = rob.subset4)
+rob.subset4.model.out <- coeftest(rob.subset4.model, vcov=vcovCL(rob.subset4.model, type="HC1", cluster= rob.subset4$response_id))
+```
